@@ -10,16 +10,16 @@ import (
 	"time"
 )
 
-const FocusLoopSecondCount = 30 * 60
-const RestLoopSecondCount = 10 * 60
-const LoopMax = 5
+const FocusLoopMinuteCount = 1
+const RestLoopMinuteCount = 1
+const LoopMax = 10
 const FocusState = "focus"
 const RestState = "rest"
 
 type userConfig struct {
-	focusLoopSecondCount int
-	restLoopSecondCount  int
-	loopMax              int
+	focusDuration time.Duration
+	restDuration  time.Duration
+	loopMax       int
 }
 
 func main() {
@@ -27,18 +27,18 @@ func main() {
 	config := getConfig()
 	userName := getUserName()
 
-	unixTimeOnLoopStart := time.Now().Unix()
+	timeOnLoopStart := time.Now()
 	focusLoopPassed := 0
 	restLoopPassed := 0
 	state := FocusState
 
 	for focusLoopPassed < config.loopMax {
-		unixTimeCurrent := time.Now().Unix()
+		timeCurrent := time.Now()
 
 		if state == FocusState {
-			if unixTimeCurrent-unixTimeOnLoopStart >= int64(config.focusLoopSecondCount) {
+			if timeCurrent.Sub(timeOnLoopStart) >= config.focusDuration {
 				focusLoopPassed++
-				unixTimeOnLoopStart = unixTimeCurrent
+				timeOnLoopStart = timeCurrent
 				state = RestState
 
 				message := strconv.Itoa(focusLoopPassed) + " focus loop passed. Take a break and start again."
@@ -48,7 +48,7 @@ func main() {
 
 			}
 
-			time.Sleep(time.Duration(int64(config.focusLoopSecondCount)) * time.Second)
+			time.Sleep(config.focusDuration)
 
 			if focusLoopPassed == config.loopMax {
 				message := "you finish all (" + strconv.Itoa(config.loopMax) + ") your focus loops. Congrats!"
@@ -58,9 +58,9 @@ func main() {
 		}
 
 		if state == RestState {
-			if unixTimeCurrent-unixTimeOnLoopStart >= int64(config.restLoopSecondCount) {
+			if timeCurrent.Sub(timeOnLoopStart) >= config.restDuration {
 				restLoopPassed++
-				unixTimeOnLoopStart = unixTimeCurrent
+				timeOnLoopStart = timeCurrent
 				state = FocusState
 
 				message := strconv.Itoa(restLoopPassed) + " rest loop passed. Get back to work."
@@ -68,7 +68,7 @@ func main() {
 					break
 				}
 			}
-			time.Sleep(time.Duration(int64(config.restLoopSecondCount)) * time.Second)
+			time.Sleep(config.restDuration)
 		}
 
 	}
@@ -83,13 +83,15 @@ func getUserName() string {
 }
 
 func getConfig() userConfig {
-	focusPointer := flag.Int("focus", FocusLoopSecondCount, "focus loop duration in seconds")
-	restPointer := flag.Int("rest", RestLoopSecondCount, "rest loop duration in seconds")
+	focusPointer := flag.Int("focus", FocusLoopMinuteCount, "focus loop duration in minutes")
+	restPointer := flag.Int("rest", RestLoopMinuteCount, "rest loop duration in in minutes")
 	loopCountPointer := flag.Int("loopCount", LoopMax, "max focus loop count")
 
 	flag.Parse()
-	config := userConfig{*focusPointer, *restPointer, *loopCountPointer}
-	return config
+	focusDuration := time.Duration(*focusPointer) * time.Minute
+	restDuration := time.Duration(*restPointer) * time.Minute
+
+	return userConfig{focusDuration, restDuration, *loopCountPointer}
 }
 
 func sendMessage(message string, userName string) bool {
