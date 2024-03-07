@@ -4,6 +4,8 @@ import (
 	"flag"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"log"
+	"log/syslog"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -51,7 +53,6 @@ func main() {
 				if !sendMessage(message, userName) {
 					break
 				}
-
 			}
 
 			time.Sleep(config.FocusDuration)
@@ -79,16 +80,13 @@ func main() {
 			message := "you finish all (" + strconv.Itoa(config.MaxLoop) + ") your focus loops. Congrats!"
 			sendMessage(message, userName)
 		}
-
 	}
-
 }
 
 func getUserName() string {
 	userCurrent, _ := user.Current()
-	userName := cases.Title(language.English).String(userCurrent.Username)
 
-	return userName
+	return cases.Title(language.English).String(userCurrent.Username)
 }
 
 func getConfig() UserConfig {
@@ -110,7 +108,8 @@ func sendMessage(message string, userName string) bool {
 	cmd := exec.Command("zenity", "--question", cancelLabel, okLabel, text, title)
 	err := cmd.Run()
 	if err != nil {
-		return false
+		logger, _ := syslog.NewLogger(syslog.LOG_ERR, log.Ldate|log.Lmicroseconds|log.Llongfile)
+		logger.Fatal("Error happen when sending message to user. ", err.Error())
 	}
 
 	return cmd.ProcessState.Success()
