@@ -2,12 +2,9 @@ package main
 
 import (
 	"flag"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"log"
 	"log/syslog"
 	"os/exec"
-	"os/user"
 	"strconv"
 	"time"
 )
@@ -33,8 +30,6 @@ type UserConfig struct {
 func main() {
 
 	config := getConfig()
-	userName := getUserName()
-
 	timeOnLoopStart := time.Now()
 	focusLoopCount := 0
 	restLoopCount := 0
@@ -47,18 +42,17 @@ func main() {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.FocusDuration {
 				focusLoopCount++
 				timeOnLoopStart = timeCurrent
-				state = StateRest
-
-				message := strconv.Itoa(focusLoopCount) + " focus loop passed. Take a break and start again."
-				if !sendMessage(message, userName) {
+				if !sendMessage(state, focusLoopCount) {
 					break
 				}
+				state = StateRest
 			}
 
 			time.Sleep(config.FocusDuration)
 
 			if focusLoopCount == config.MaxLoop {
 				state = StateFinish
+				sendMessage(state, focusLoopCount)
 			}
 		}
 
@@ -66,27 +60,14 @@ func main() {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.RestDuration {
 				restLoopCount++
 				timeOnLoopStart = timeCurrent
-				state = StateFocus
-
-				message := strconv.Itoa(restLoopCount) + " rest loop passed. Get back to work."
-				if !sendMessage(message, userName) {
+				if !sendMessage(state, restLoopCount) {
 					break
 				}
+				state = StateFocus
 			}
 			time.Sleep(config.RestDuration)
 		}
-
-		if state == StateFinish {
-			message := "you finish all (" + strconv.Itoa(config.MaxLoop) + ") your focus loops. Congrats!"
-			sendMessage(message, userName)
-		}
 	}
-}
-
-func getUserName() string {
-	userCurrent, _ := user.Current()
-
-	return cases.Title(language.English).String(userCurrent.Username)
 }
 
 func getConfig() UserConfig {
@@ -100,10 +81,20 @@ func getConfig() UserConfig {
 	return UserConfig{focusDuration, restDuration, *loopCountPointer}
 }
 
-func sendMessage(message string, userName string) bool {
-	text := "--text=" + userName + ", " + message
-	cancelLabel := "--cancel-label=Stop Pomodoro"
-	okLabel := "--ok-label=Start next Loop"
+func sendMessage(state string, loopCount int) bool {
+	messageMap := map[string]string{
+		StateFocus:  strconv.Itoa(loopCount) + " focus loop passed.",
+		StateRest:   strconv.Itoa(loopCount) + " rest loop passed.",
+		StateFinish: "All (" + strconv.Itoa(loopCount) + ") focus loops done. Congrats!",
+	}
+	okLabelMap := map[string]string{
+		StateFocus:  "Take a break",
+		StateRest:   "Focus",
+		StateFinish: "Finish",
+	}
+	text := "--text=" + messageMap[state]
+	okLabel := "--ok-label=" + okLabelMap[state]
+	cancelLabel := "--cancel-label=Stop"
 	title := "--title=Pomodoro"
 	cmd := exec.Command("zenity", "--question", cancelLabel, okLabel, text, title)
 	err := cmd.Run()
