@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	FocusLoopMinuteCount = 40
-	RestLoopMinuteCount  = 15
+	FocusLoopMinuteCount = 30
+	RestLoopMinuteCount  = 10
 	MaxLoop              = 8
 )
 
@@ -46,14 +46,8 @@ func main() {
 					break
 				}
 				state = StateRest
-			}
-
-			time.Sleep(config.FocusDuration)
-
-			if focusLoopCount == config.MaxLoop {
-				state = StateFinish
-				sendMessage(state, focusLoopCount, config)
-				break
+			} else {
+				time.Sleep(config.FocusDuration)
 			}
 		}
 
@@ -65,8 +59,15 @@ func main() {
 					break
 				}
 				state = StateFocus
+			} else {
+				time.Sleep(config.RestDuration)
 			}
-			time.Sleep(config.RestDuration)
+		}
+
+		if focusLoopCount == config.MaxLoop {
+			state = StateFinish
+			sendMessage(state, focusLoopCount, config)
+			break
 		}
 	}
 }
@@ -94,17 +95,19 @@ func sendMessage(state string, loopCount int, config UserConfig) bool {
 		StateFinish: "Finish",
 	}
 	text := "--text=" + messageMap[state]
-	restartLabel := "--extra-button=Restart"
-	stopLabel := "--extra-button=Stop"
 	okLabel := "--ok-label=" + okLabelMap[state]
+	resetLabel := "--extra-button=Reset"
+	stopLabel := "--extra-button=Exit"
 	title := "--title=Pomodoro"
-	cmd := exec.Command("zenity", "--info", restartLabel, stopLabel, okLabel, text, title)
+	cmd := exec.Command("zenity", "--info", okLabel, resetLabel, stopLabel, text, title)
 	bytes, err := cmd.Output()
 	output := string(bytes)
-	if strings.Contains(output, "Restart") {
-		restartPomodoro(config)
+
+	if strings.Contains(output, "Reset") {
+		resetPomodoro(config)
 		return false
-	} else if strings.Contains(output, "Stop") {
+	} else if strings.Contains(output, "Exit") {
+
 		return false
 	}
 	if err != nil {
@@ -115,11 +118,11 @@ func sendMessage(state string, loopCount int, config UserConfig) bool {
 	return cmd.ProcessState.Success()
 }
 
-func restartPomodoro(config UserConfig) {
+func resetPomodoro(config UserConfig) {
 	focusMinutes := int(config.FocusDuration.Minutes())
 	restMinutes := int(config.RestDuration.Minutes())
 	focus := "--focus=" + strconv.Itoa(focusMinutes)
-	rest := "--rest=1" + strconv.Itoa(restMinutes)
+	rest := "--rest=" + strconv.Itoa(restMinutes)
 	loopCount := "--loopCount=" + strconv.Itoa(config.MaxLoop)
 	cmd := exec.Command("pomodoro", focus, rest, loopCount)
 	err := cmd.Start()
