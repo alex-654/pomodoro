@@ -41,10 +41,11 @@ func main() {
 		if state == StateFocus {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.FocusDuration {
 				focusLoopCount++
-				timeOnLoopStart = timeCurrent
 				if !sendMessage(state, focusLoopCount, config) {
 					break
 				}
+				timeOnLoopStart = time.Now()
+				timeCurrent = time.Now()
 				state = StateRest
 			} else {
 				time.Sleep(config.FocusDuration)
@@ -54,10 +55,11 @@ func main() {
 		if state == StateRest {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.RestDuration {
 				restLoopCount++
-				timeOnLoopStart = timeCurrent
 				if !sendMessage(state, restLoopCount, config) {
 					break
 				}
+				timeOnLoopStart = time.Now()
+				timeCurrent = time.Now()
 				state = StateFocus
 			} else {
 				time.Sleep(config.RestDuration)
@@ -73,14 +75,20 @@ func main() {
 }
 
 func getConfig() UserConfig {
-	focusPointer := flag.Int("focus", FocusLoopMinuteCount, "focus loop duration in minutes")
-	restPointer := flag.Int("rest", RestLoopMinuteCount, "rest loop duration in in minutes")
-	loopCountPointer := flag.Int("loopCount", MaxLoop, "max focus loop count")
+	var (
+		focus     int
+		rest      int
+		loopCount int
+	)
+	flag.IntVar(&focus, "focus", FocusLoopMinuteCount, "focus loop duration in minutes")
+	flag.IntVar(&rest, "rest", RestLoopMinuteCount, "rest loop duration in in minutes")
+	flag.IntVar(&loopCount, "loopCount", MaxLoop, "max focus loop count")
 	flag.Parse()
-	focusDuration := time.Duration(*focusPointer) * time.Minute
-	restDuration := time.Duration(*restPointer) * time.Minute
 
-	return UserConfig{focusDuration, restDuration, *loopCountPointer}
+	focusDuration := time.Duration(focus) * time.Minute
+	restDuration := time.Duration(rest) * time.Minute
+
+	return UserConfig{focusDuration, restDuration, loopCount}
 }
 
 func sendMessage(state string, loopCount int, config UserConfig) bool {
