@@ -2,9 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"log/syslog"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -41,7 +43,7 @@ func main() {
 		if state == StateFocus {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.FocusDuration {
 				focusLoopCount++
-				if !sendMessage(state, focusLoopCount, config) {
+				if !sendMessage(state, focusLoopCount, &config) {
 					break
 				}
 				timeOnLoopStart = time.Now()
@@ -55,7 +57,7 @@ func main() {
 		if state == StateRest {
 			if timeCurrent.Sub(timeOnLoopStart) >= config.RestDuration {
 				restLoopCount++
-				if !sendMessage(state, restLoopCount, config) {
+				if !sendMessage(state, restLoopCount, &config) {
 					break
 				}
 				timeOnLoopStart = time.Now()
@@ -68,12 +70,13 @@ func main() {
 
 		if focusLoopCount == config.MaxLoop {
 			state = StateFinish
-			sendMessage(state, focusLoopCount, config)
+			sendMessage(state, focusLoopCount, &config)
 			break
 		}
 	}
 }
 
+// Get user config. User can pass rest and focus duration throw command flags
 func getConfig() UserConfig {
 	var (
 		focus     int
@@ -91,7 +94,16 @@ func getConfig() UserConfig {
 	return UserConfig{focusDuration, restDuration, loopCount}
 }
 
-func sendMessage(state string, loopCount int, config UserConfig) bool {
+// Send user notification about loop passed, then handel user answer and update user config
+func sendMessage(state string, loopCount int, config *UserConfig) bool {
+	cmd := createCommand(state, loopCount, config)
+	bytes, _ := cmd.Output()
+	output := string(bytes)
+	return handleCmdResult(cmd.ProcessState.Success(), output, state, config)
+}
+
+// Create command with params that display GTK+ dialogs
+func createCommand(state string, loopCount int, config *UserConfig) *exec.Cmd {
 	messageMap := map[string]string{
 		StateFocus:  strconv.Itoa(loopCount) + " focus loop passed.",
 		StateRest:   strconv.Itoa(loopCount) + " rest loop passed.",
@@ -102,31 +114,49 @@ func sendMessage(state string, loopCount int, config UserConfig) bool {
 		StateRest:   "Focus",
 		StateFinish: "Finish",
 	}
-	text := "--text=" + messageMap[state]
-	okLabel := "--ok-label=" + okLabelMap[state]
-	resetLabel := "--extra-button=Reset"
-	stopLabel := "--extra-button=Exit"
 	title := "--title=Pomodoro"
-	cmd := exec.Command("zenity", "--info", okLabel, resetLabel, stopLabel, text, title)
-	bytes, err := cmd.Output()
-	output := string(bytes)
-
-	if strings.Contains(output, "Reset") {
-		resetPomodoro(config)
-		return false
-	} else if strings.Contains(output, "Exit") {
-
-		return false
+	text := "--text=" + messageMap[state]
+	okLabel := "--ok-label=" + okLabelMap[state] + " ✅"
+	stopLabel := "--cancel-label= off 🙅"
+	resetLabel := "--extra-button=Reset 🔄"
+	currentDuration := 0.0
+	if state == StateFocus {
+		currentDuration = config.RestDuration.Minutes()
+	} else {
+		currentDuration = config.FocusDuration.Minutes()
 	}
-	if err != nil {
-		logger, _ := syslog.NewLogger(syslog.LOG_ERR, log.Ldate|log.Lmicroseconds|log.Llongfile)
-		logger.Fatal("Error happen when sending message to user. ", err.Error())
-	}
-
-	return cmd.ProcessState.Success()
+	form := fmt.Sprintf("--entry-text=%.f", currentDuration)
+	return exec.Command("zenity", "--entry", title, text, okLabel, form, stopLabel, resetLabel)
 }
 
-func resetPomodoro(config UserConfig) {
+func handleCmdResult(isSuccess bool, output string, state string, config *UserConfig) bool {
+	if isSuccess {
+		d := regexp.MustCompile(`\d+`).FindString(output)
+		minutes, _ := strconv.Atoi(d)
+		if minutes <= 0 {
+			restart(*config)
+			return false
+		}
+		nextLoopDuration := time.Duration(minutes) * time.Minute
+		if state == StateFocus {
+			config.RestDuration = nextLoopDuration
+		}
+		if state == StateRest {
+			config.FocusDuration = nextLoopDuration
+		}
+		return true
+	}
+
+	if strings.Contains(output, "Reset") {
+		restart(*config)
+		return false
+	}
+
+	return false
+}
+
+// Restart pomodoro timer with last userConfig params
+func restart(config UserConfig) {
 	focusMinutes := int(config.FocusDuration.Minutes())
 	restMinutes := int(config.RestDuration.Minutes())
 	focus := "--focus=" + strconv.Itoa(focusMinutes)
