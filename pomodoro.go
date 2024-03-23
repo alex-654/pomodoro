@@ -114,10 +114,10 @@ func createCommand(state string, loopCount int, config *UserConfig) *exec.Cmd {
 		StateRest:   "Focus",
 		StateFinish: "Finish",
 	}
-	title := "--title=Pomodoro"
-	text := "--text=" + messageMap[state]
+	title := "--title=Pomodoro " + messageMap[state]
+	text := "--text=Next loop will be (minutes)"
 	okLabel := "--ok-label=" + okLabelMap[state] + " ✅"
-	stopLabel := "--cancel-label= off 🙅"
+	stopLabel := "--cancel-label= Off"
 	resetLabel := "--extra-button=Reset 🔄"
 	currentDuration := 0.0
 	if state == StateFocus {
