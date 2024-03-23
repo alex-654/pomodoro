@@ -31,7 +31,7 @@ type UserConfig struct {
 }
 
 func main() {
-	config := getConfig()
+	config := parseConfig()
 	timeOnLoopStart := time.Now()
 	focusLoopCount := 0
 	restLoopCount := 0
@@ -76,8 +76,8 @@ func main() {
 	}
 }
 
-// Get user config. User can pass rest and focus duration throw command flags
-func getConfig() UserConfig {
+// Parse user config. User can pass rest and focus duration throw command flags
+func parseConfig() UserConfig {
 	var (
 		focus     int
 		rest      int
@@ -96,18 +96,18 @@ func getConfig() UserConfig {
 
 // Send user notification about loop passed, then handel user answer and update user config
 func sendMessage(state string, loopCount int, config *UserConfig) bool {
-	cmd := createCommand(state, loopCount, config)
+	cmd := createCmd(state, loopCount, config)
 	bytes, _ := cmd.Output()
 	output := string(bytes)
 	return handleCmdResult(cmd.ProcessState.Success(), output, state, config)
 }
 
 // Create command with params that display GTK+ dialogs
-func createCommand(state string, loopCount int, config *UserConfig) *exec.Cmd {
+func createCmd(state string, loopCount int, config *UserConfig) *exec.Cmd {
 	messageMap := map[string]string{
-		StateFocus:  strconv.Itoa(loopCount) + " focus loop passed.",
-		StateRest:   strconv.Itoa(loopCount) + " rest loop passed.",
-		StateFinish: "All (" + strconv.Itoa(loopCount) + ") focus loops done. Congrats!",
+		StateFocus:  fmt.Sprintf("%d focus loop passed.", loopCount),
+		StateRest:   fmt.Sprintf("%d rest loop passed.", loopCount),
+		StateFinish: fmt.Sprintf("All %d focus loops finished. Congrats!", loopCount),
 	}
 	okLabelMap := map[string]string{
 		StateFocus:  "Take a break",
