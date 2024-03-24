@@ -24,7 +24,7 @@ const (
 	StateFinish = "finish"
 )
 
-type UserConfig struct {
+type Config struct {
 	FocusDuration time.Duration
 	RestDuration  time.Duration
 	MaxLoop       int
@@ -76,8 +76,9 @@ func main() {
 	}
 }
 
-// Parse user config. User can pass rest and focus duration throw command flags
-func parseConfig() UserConfig {
+// ParseConfig read what user pass throw command flags and wrap that input in Config.
+// If input empty use a default constant values
+func parseConfig() Config {
 	var (
 		focus     int
 		rest      int
@@ -91,19 +92,19 @@ func parseConfig() UserConfig {
 	focusDuration := time.Duration(focus) * time.Minute
 	restDuration := time.Duration(rest) * time.Minute
 
-	return UserConfig{focusDuration, restDuration, loopCount}
+	return Config{focusDuration, restDuration, loopCount}
 }
 
 // Send user notification about loop passed, then handel user answer and update user config
-func sendMessage(state string, loopCount int, config *UserConfig) bool {
+func sendMessage(state string, loopCount int, config *Config) bool {
 	cmd := createCmd(state, loopCount, config)
 	bytes, _ := cmd.Output()
 	output := string(bytes)
 	return handleCmdResult(cmd.ProcessState.Success(), output, state, config)
 }
 
-// Create command with params that display GTK+ dialogs
-func createCmd(state string, loopCount int, config *UserConfig) *exec.Cmd {
+// Create command with params that display GTK dialogs
+func createCmd(state string, loopCount int, config *Config) *exec.Cmd {
 	messageMap := map[string]string{
 		StateFocus:  fmt.Sprintf("%d focus loop passed.", loopCount),
 		StateRest:   fmt.Sprintf("%d rest loop passed.", loopCount),
@@ -129,10 +130,10 @@ func createCmd(state string, loopCount int, config *UserConfig) *exec.Cmd {
 	return exec.Command("zenity", "--entry", title, text, okLabel, form, stopLabel, resetLabel)
 }
 
-func handleCmdResult(isSuccess bool, output string, state string, config *UserConfig) bool {
+func handleCmdResult(isSuccess bool, output string, state string, config *Config) bool {
 	if isSuccess {
-		d := regexp.MustCompile(`\d+`).FindString(output)
-		minutes, _ := strconv.Atoi(d)
+		minutesStr := regexp.MustCompile(`\d+`).FindString(output)
+		minutes, _ := strconv.Atoi(minutesStr)
 		if minutes <= 0 {
 			restart(*config)
 			return false
@@ -156,7 +157,7 @@ func handleCmdResult(isSuccess bool, output string, state string, config *UserCo
 }
 
 // Restart pomodoro timer with last userConfig params
-func restart(config UserConfig) {
+func restart(config Config) {
 	focusMinutes := int(config.FocusDuration.Minutes())
 	restMinutes := int(config.RestDuration.Minutes())
 	focus := "--focus=" + strconv.Itoa(focusMinutes)
