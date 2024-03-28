@@ -1,168 +1,116 @@
 package main
 
 import (
-	"flag"
-	"fmt"
 	"log"
 	"log/syslog"
 	"os/exec"
-	"regexp"
 	"strconv"
-	"strings"
 	"time"
 )
 
+// States of pomodoro timer
 const (
-	FocusLoopMinuteCount = 30
-	RestLoopMinuteCount  = 10
-	MaxLoop              = 8
+	stateFocus  = "focus"
+	stateRest   = "rest"
+	stateFinish = "finish"
 )
 
-const (
-	StateFocus  = "focus"
-	StateRest   = "rest"
-	StateFinish = "finish"
-)
-
-type Config struct {
-	FocusDuration time.Duration
-	RestDuration  time.Duration
-	MaxLoop       int
+// A config wrap user params in structure
+type config struct {
+	focusDuration time.Duration
+	restDuration  time.Duration
+	maxLoop       int
 }
 
-func main() {
-	config := parseConfig()
+type messenger interface {
+	send(state string, focusLoopCount int, conf config) response
+}
+
+// A response represent user response on loop notification end
+type response struct {
+	off             bool // turn off timer
+	reset           bool // reset/restart timer
+	nextLoopMinutes int  // user decide keep going and set next loop to some minutes
+}
+
+// A pomodoro func realized logic of timer when to notify user about when need to rest and focus
+func pomodoro(conf config, m messenger) {
 	timeOnLoopStart := time.Now()
 	focusLoopCount := 0
 	restLoopCount := 0
-	state := StateFocus
+	state := stateFocus
 
 	for {
 		timeCurrent := time.Now()
 
-		if state == StateFocus {
-			if timeCurrent.Sub(timeOnLoopStart) >= config.FocusDuration {
+		if state == stateFocus {
+			if timeCurrent.Sub(timeOnLoopStart) >= conf.focusDuration {
 				focusLoopCount++
-				if !sendMessage(state, focusLoopCount, &config) {
+				r := m.send(state, focusLoopCount, conf)
+				if !handleResponse(r, state, &conf) {
 					break
 				}
 				timeOnLoopStart = time.Now()
 				timeCurrent = time.Now()
-				state = StateRest
+				state = stateRest
 			} else {
-				time.Sleep(config.FocusDuration)
+				time.Sleep(conf.focusDuration)
 			}
 		}
 
-		if state == StateRest {
-			if timeCurrent.Sub(timeOnLoopStart) >= config.RestDuration {
+		if state == stateRest {
+			if timeCurrent.Sub(timeOnLoopStart) >= conf.restDuration {
 				restLoopCount++
-				if !sendMessage(state, restLoopCount, &config) {
+				r := m.send(state, focusLoopCount, conf)
+				if !handleResponse(r, state, &conf) {
 					break
 				}
 				timeOnLoopStart = time.Now()
 				timeCurrent = time.Now()
-				state = StateFocus
+				state = stateFocus
 			} else {
-				time.Sleep(config.RestDuration)
+				time.Sleep(conf.restDuration)
 			}
 		}
 
-		if focusLoopCount == config.MaxLoop {
-			state = StateFinish
-			sendMessage(state, focusLoopCount, &config)
+		if focusLoopCount == conf.maxLoop {
+			state = stateFinish
+			m.send(state, focusLoopCount, conf)
 			break
 		}
 	}
 }
 
-// ParseConfig read what user pass throw command flags and wrap that input in Config.
-// If input empty use a default constant values
-func parseConfig() Config {
-	var (
-		focus     int
-		rest      int
-		loopCount int
-	)
-	flag.IntVar(&focus, "focus", FocusLoopMinuteCount, "focus loop duration in minutes")
-	flag.IntVar(&rest, "rest", RestLoopMinuteCount, "rest loop duration in in minutes")
-	flag.IntVar(&loopCount, "loopCount", MaxLoop, "max focus loop count")
-	flag.Parse()
-
-	focusDuration := time.Duration(focus) * time.Minute
-	restDuration := time.Duration(rest) * time.Minute
-
-	return Config{focusDuration, restDuration, loopCount}
-}
-
-// Send user notification about loop passed, then handel user answer and update user config
-func sendMessage(state string, loopCount int, config *Config) bool {
-	cmd := createCmd(state, loopCount, config)
-	bytes, _ := cmd.Output()
-	output := string(bytes)
-	return handleCmdResult(cmd.ProcessState.Success(), output, state, config)
-}
-
-// Create command with params that display GTK dialogs
-func createCmd(state string, loopCount int, config *Config) *exec.Cmd {
-	messageMap := map[string]string{
-		StateFocus:  fmt.Sprintf("%d focus loop passed.", loopCount),
-		StateRest:   fmt.Sprintf("%d rest loop passed.", loopCount),
-		StateFinish: fmt.Sprintf("All %d focus loops finished. Congrats!", loopCount),
+func handleResponse(r response, state string, c *config) bool {
+	if r.off {
+		return false
 	}
-	okLabelMap := map[string]string{
-		StateFocus:  "Take a break",
-		StateRest:   "Focus",
-		StateFinish: "Finish",
+	if r.reset {
+		restart(*c)
+		return false
 	}
-	title := "--title=Pomodoro " + messageMap[state]
-	text := "--text=Next loop will be (minutes)"
-	okLabel := "--ok-label=" + okLabelMap[state] + " ✅"
-	stopLabel := "--cancel-label= Off"
-	resetLabel := "--extra-button=Reset 🔄"
-	currentDuration := 0.0
-	if state == StateFocus {
-		currentDuration = config.RestDuration.Minutes()
-	} else {
-		currentDuration = config.FocusDuration.Minutes()
-	}
-	form := fmt.Sprintf("--entry-text=%.f", currentDuration)
-	return exec.Command("zenity", "--entry", title, text, okLabel, form, stopLabel, resetLabel)
-}
-
-func handleCmdResult(isSuccess bool, output string, state string, config *Config) bool {
-	if isSuccess {
-		minutesStr := regexp.MustCompile(`\d+`).FindString(output)
-		minutes, _ := strconv.Atoi(minutesStr)
-		if minutes <= 0 {
-			restart(*config)
-			return false
-		}
-		nextLoopDuration := time.Duration(minutes) * time.Minute
-		if state == StateFocus {
-			config.RestDuration = nextLoopDuration
-		}
-		if state == StateRest {
-			config.FocusDuration = nextLoopDuration
-		}
+	if r.nextLoopMinutes <= 0 {
 		return true
 	}
 
-	if strings.Contains(output, "Reset") {
-		restart(*config)
-		return false
+	nextLoopDuration := time.Duration(r.nextLoopMinutes) * time.Minute
+	if state == stateFocus {
+		c.restDuration = nextLoopDuration
+	}
+	if state == stateRest {
+		c.focusDuration = nextLoopDuration
 	}
 
-	return false
+	return true
 }
 
-// Restart pomodoro timer with last userConfig params
-func restart(config Config) {
-	focusMinutes := int(config.FocusDuration.Minutes())
-	restMinutes := int(config.RestDuration.Minutes())
+// restart pomodoro timer with last userConfig params
+func restart(config config) {
+	focusMinutes := int(config.focusDuration.Minutes())
+	restMinutes := int(config.restDuration.Minutes())
 	focus := "--focus=" + strconv.Itoa(focusMinutes)
 	rest := "--rest=" + strconv.Itoa(restMinutes)
-	loopCount := "--loopCount=" + strconv.Itoa(config.MaxLoop)
+	loopCount := "--loopCount=" + strconv.Itoa(config.maxLoop)
 	cmd := exec.Command("pomodoro", focus, rest, loopCount)
 	err := cmd.Start()
 	if err != nil {
