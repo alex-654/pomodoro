@@ -25,8 +25,8 @@ func parseConfig() config {
 	flag.IntVar(&loopCount, "loopCount", maxLoop, "max focus loop count")
 	flag.Parse()
 
-	focusDuration := time.Duration(focus) * time.Millisecond
-	restDuration := time.Duration(rest) * time.Millisecond
+	focusDuration := time.Duration(focus) * time.Minute
+	restDuration := time.Duration(rest) * time.Minute
 
 	return config{focusDuration, restDuration, loopCount}
 }
