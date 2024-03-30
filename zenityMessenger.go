@@ -6,8 +6,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
+// A zenityMessenger base work implementation of messenger
 type zenityMessenger struct{}
 
 // send func send notification to user about loop passed, then wrap user answer to response structure
@@ -19,9 +21,10 @@ func (z zenityMessenger) send(state string, loopCount int, conf config) response
 	if cmd.ProcessState.Success() {
 		minutesStr := regexp.MustCompile(`\d+`).FindString(output)
 		minutes, _ := strconv.Atoi(minutesStr)
-		return response{nextLoopMinutes: minutes}
+		d := time.Duration(minutes) * time.Minute
+		return response{nextLoop: d}
 	}
-	if strings.Contains(output, "reset") {
+	if strings.Contains(strings.ToLower(output), "reset") {
 		return response{reset: true}
 	}
 

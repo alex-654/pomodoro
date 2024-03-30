@@ -1,12 +1,16 @@
 package main
 
 import (
-	"log"
-	"log/syslog"
-	"os/exec"
-	"strconv"
 	"time"
 )
+
+func main() {
+	p := pomodoro{
+		conf:      parseConfig(),
+		messenger: zenityMessenger{},
+	}
+	p.run()
+}
 
 // States of pomodoro timer
 const (
@@ -22,19 +26,26 @@ type config struct {
 	maxLoop       int
 }
 
+// A messenger interface send user message about state changes
 type messenger interface {
 	send(state string, focusLoopCount int, conf config) response
 }
 
-// A response represent user response on loop notification end
+// A response represent user response when he gets notification about loop end
 type response struct {
-	off             bool // turn off timer
-	reset           bool // reset/restart timer
-	nextLoopMinutes int  // user decide keep going and set next loop to some minutes
+	off      bool          // turn off timer
+	reset    bool          // reset/restart timer
+	nextLoop time.Duration // user decide keep going and set next loop to some minutes
 }
 
-// A pomodoro func realized logic of timer when to notify user about when need to rest and focus
-func pomodoro(conf config, m messenger) {
+// A pomodoro struct keep user settings and message provider
+type pomodoro struct {
+	conf      config
+	messenger messenger
+}
+
+// A run func realized logic of timer when to notify user about when need to rest and focus
+func (p *pomodoro) run() {
 	timeOnLoopStart := time.Now()
 	focusLoopCount := 0
 	restLoopCount := 0
@@ -44,77 +55,62 @@ func pomodoro(conf config, m messenger) {
 		timeCurrent := time.Now()
 
 		if state == stateFocus {
-			if timeCurrent.Sub(timeOnLoopStart) >= conf.focusDuration {
+			if timeCurrent.Sub(timeOnLoopStart) >= p.conf.focusDuration {
 				focusLoopCount++
-				r := m.send(state, focusLoopCount, conf)
-				if !handleResponse(r, state, &conf) {
+				r := p.messenger.send(state, focusLoopCount, p.conf)
+				if !p.handleResponse(r, state) {
 					break
 				}
 				timeOnLoopStart = time.Now()
 				timeCurrent = time.Now()
 				state = stateRest
 			} else {
-				time.Sleep(conf.focusDuration)
+				time.Sleep(p.conf.focusDuration)
 			}
 		}
 
 		if state == stateRest {
-			if timeCurrent.Sub(timeOnLoopStart) >= conf.restDuration {
+			if timeCurrent.Sub(timeOnLoopStart) >= p.conf.restDuration {
 				restLoopCount++
-				r := m.send(state, focusLoopCount, conf)
-				if !handleResponse(r, state, &conf) {
+				r := p.messenger.send(state, focusLoopCount, p.conf)
+				if !p.handleResponse(r, state) {
 					break
 				}
 				timeOnLoopStart = time.Now()
 				timeCurrent = time.Now()
 				state = stateFocus
 			} else {
-				time.Sleep(conf.restDuration)
+				time.Sleep(p.conf.restDuration)
 			}
 		}
 
-		if focusLoopCount == conf.maxLoop {
+		if focusLoopCount == p.conf.maxLoop {
 			state = stateFinish
-			m.send(state, focusLoopCount, conf)
+			p.messenger.send(state, focusLoopCount, p.conf)
 			break
 		}
 	}
 }
 
-func handleResponse(r response, state string, c *config) bool {
+// A handleResponse func handel user response
+func (p *pomodoro) handleResponse(r response, state string) bool {
 	if r.off {
 		return false
 	}
 	if r.reset {
-		restart(*c)
+		p.run()
 		return false
 	}
-	if r.nextLoopMinutes <= 0 {
+	if r.nextLoop <= 0 {
 		return true
 	}
 
-	nextLoopDuration := time.Duration(r.nextLoopMinutes) * time.Minute
 	if state == stateFocus {
-		c.restDuration = nextLoopDuration
+		p.conf.restDuration = r.nextLoop
 	}
 	if state == stateRest {
-		c.focusDuration = nextLoopDuration
+		p.conf.focusDuration = r.nextLoop
 	}
 
 	return true
-}
-
-// restart pomodoro timer with last userConfig params
-func restart(config config) {
-	focusMinutes := int(config.focusDuration.Minutes())
-	restMinutes := int(config.restDuration.Minutes())
-	focus := "--focus=" + strconv.Itoa(focusMinutes)
-	rest := "--rest=" + strconv.Itoa(restMinutes)
-	loopCount := "--loopCount=" + strconv.Itoa(config.maxLoop)
-	cmd := exec.Command("pomodoro", focus, rest, loopCount)
-	err := cmd.Start()
-	if err != nil {
-		logger, _ := syslog.NewLogger(syslog.LOG_ERR, log.Ldate|log.Lmicroseconds|log.Llongfile)
-		logger.Fatal("Can't create new pomodoro timer. ", err.Error())
-	}
 }
