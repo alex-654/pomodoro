@@ -1,5 +1,3 @@
-module go/pomodoro
+module github.com/alex-654/pomodoro
 
 go 1.22.0
-
-require golang.org/x/text v0.14.0
